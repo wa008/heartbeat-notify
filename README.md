@@ -5,9 +5,14 @@ A Python tool to monitor file modification times and send Discord notifications 
 ## Installation
 
 ```bash
+# Install from PyPI
 pip install heartbeat-notify
-# or
-uv pip install heartbeat-notify
+
+# Install locally (editable mode)
+pip install -e .
+
+# Install locally (using uv)
+uv pip install .
 ```
 
 ## Usage
