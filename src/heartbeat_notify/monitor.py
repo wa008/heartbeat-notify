@@ -21,6 +21,7 @@ class AppConfig(BaseModel):
     default_webhook_url: Optional[str] = None
     files: List[FileMonitorConfig]
     alive_schedule: List[str] = Field(default_factory=list, description="List of times (HH:MM) to send alive notifications")
+    log_file: Optional[str] = Field(None, description="Path to a log file")
 
 
 def get_file_age(file_path: Path) -> float:

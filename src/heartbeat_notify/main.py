@@ -8,11 +8,20 @@ from typing import Optional
 from .monitor import AppConfig, check_file
 from .notifier import send_discord_notification
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+def setup_logging(log_file: Optional[str] = None, verbose: bool = False):
+    handlers = [logging.StreamHandler(sys.stderr)]
+    if log_file:
+        path = Path(log_file).expanduser().resolve()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(path))
+
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=handlers,
+        force=True # Reconfigure if already configured
+    )
+
 logger = logging.getLogger("heartbeat-notify")
 
 @click.command()
@@ -23,8 +32,8 @@ def cli(config, interval, verbose):
     """
     Heartbeat Notify: Monitor file updates and notify via Discord.
     """
-    if verbose:
-        logger.setLevel(logging.DEBUG)
+    # Initial setup (stderr only)
+    setup_logging(verbose=verbose)
 
     config_path = Path(config).expanduser()
     
@@ -57,6 +66,8 @@ def cli(config, interval, verbose):
             if new_config:
                 app_config = new_config
                 last_config_mtime = current_config_mtime
+                # Reconfigure logging if log_file changed
+                setup_logging(log_file=app_config.log_file, verbose=verbose)
                 logger.info(f"Configuration reloaded. Monitoring {len(app_config.files)} files.")
                 # We do NOT clear notified_files here to avoid re-notifying stale files just because config changed.
             else:
