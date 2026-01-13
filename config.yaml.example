@@ -1,0 +1,21 @@
+# Default Discord Webhook URL (global fallback)
+# You can override this per file below.
+default_webhook_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_URL_HERE"
+
+# List of files to monitor
+files:
+  - name: "Application Log"
+    path: "/var/log/app.log"
+    # Time in seconds before considering the file stalled
+    heartbeat_seconds: 300 
+    
+  - name: "Critical Database Backup"
+    path: "/backups/db_dump.sql"
+    heartbeat_seconds: 3600
+    # Optional: Specific webhook for this file
+    webhook_url: "https://discord.com/api/webhooks/ANOTHER_WEBHOOK_URL"
+
+# Schedule to send a "Process Alive" notification (HH:MM format, 24h)
+alive_schedule:
+  - "09:00"
+  - "18:00"
