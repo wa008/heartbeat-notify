@@ -16,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger("heartbeat-notify")
 
 @click.command()
-@click.option('--config', '-c', type=click.Path(), default='config.yaml', help='Path to configuration YAML file. Default is config.yaml.')
+@click.option('--config', '-c', type=click.Path(), default='~/.heartbeat-notify/config.yaml', help='Path to configuration YAML file. Default is ~/.heartbeat-notify/config.yaml.')
 @click.option('--interval', '-i', type=int, default=60, help='Run in a loop with this interval in seconds. Default is 60. Set to 0 to run once.')
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging.')
 def cli(config, interval, verbose):
@@ -26,7 +26,7 @@ def cli(config, interval, verbose):
     if verbose:
         logger.setLevel(logging.DEBUG)
 
-    config_path = Path(config)
+    config_path = Path(config).expanduser()
     
     # Load Config
     app_config = load_config(config_path)
