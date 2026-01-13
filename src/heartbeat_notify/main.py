@@ -4,6 +4,7 @@ import logging
 import yaml
 import click
 from pathlib import Path
+from typing import Optional
 from .monitor import AppConfig, check_file
 from .notifier import send_discord_notification
 
@@ -28,12 +29,8 @@ def cli(config, interval, verbose):
     config_path = Path(config)
     
     # Load Config
-    try:
-        with open(config_path, 'r') as f:
-            raw_config = yaml.safe_load(f)
-        app_config = AppConfig(**raw_config)
-    except Exception as e:
-        logger.error(f"Failed to load configuration: {e}")
+    app_config = load_config(config_path)
+    if not app_config:
         sys.exit(1)
 
     logger.info(f"Loaded configuration with {len(app_config.files)} files to monitor.")
@@ -43,8 +40,30 @@ def cli(config, interval, verbose):
     last_sent_day = time.localtime().tm_yday
     sent_today = set()
 
+    # Track config file modification time
+    last_config_mtime = get_config_mtime(config_path)
+
+    # Track notified files to prevent spam
+    # Set of file paths that we have already sent a stalled notification for.
+    notified_files = set()
+
     # Main Loop
     while True:
+        # Check for config updates
+        current_config_mtime = get_config_mtime(config_path)
+        if current_config_mtime != last_config_mtime:
+            logger.info("Configuration file changed. Reloading...")
+            new_config = load_config(config_path)
+            if new_config:
+                app_config = new_config
+                last_config_mtime = current_config_mtime
+                logger.info(f"Configuration reloaded. Monitoring {len(app_config.files)} files.")
+                # We do NOT clear notified_files here to avoid re-notifying stale files just because config changed.
+            else:
+                logger.error("Failed to reload configuration. Keeping previous configuration.")
+                # Update mtime anyway to avoid spamming error logs every cycle if the file remains broken
+                last_config_mtime = current_config_mtime
+
         current_time_struct = time.localtime()
         current_day = current_time_struct.tm_yday
         
@@ -53,12 +72,16 @@ def cli(config, interval, verbose):
             sent_today.clear()
             last_sent_day = current_day
 
-        run_check_cycle(app_config)
+        run_check_cycle(app_config, notified_files)
         
         # Check alive schedule
         current_hhmm = time.strftime("%H:%M", current_time_struct)
         if current_hhmm in app_config.alive_schedule and current_hhmm not in sent_today:
-            msg = f"🟢 **Process Alive**: Heartbeat monitor is running. Time: {current_hhmm}"
+            msg = (
+                f"🟢 **Process Alive**\n"
+                f"**Time**: {current_hhmm}\n"
+                f"Heartbeat monitor is running successfully."
+            )
             logger.info("Sending alive notification.")
             if app_config.default_webhook_url:
                 send_discord_notification(app_config.default_webhook_url, msg)
@@ -72,23 +95,50 @@ def cli(config, interval, verbose):
         logger.debug(f"Sleeping for {interval} seconds...")
         time.sleep(interval)
 
-def run_check_cycle(app_config: AppConfig):
+def get_config_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
+
+def load_config(path: Path) -> Optional[AppConfig]:
+    try:
+        with open(path, 'r') as f:
+            raw_config = yaml.safe_load(f)
+        return AppConfig(**raw_config)
+    except Exception as e:
+        logger.error(f"Error loading configuration: {e}")
+        return None
+
+def run_check_cycle(app_config: AppConfig, notified_files: set):
     for file_config in app_config.files:
         try:
             is_stalled = check_file(file_config)
+            file_id = str(file_config.resolved_path)
+            
             if is_stalled:
-                url = file_config.webhook_url or app_config.default_webhook_url
-                if url:
-                    message = f"⚠️ **Heartbeat Missed**: File `{file_config.name}` (`{file_config.path}`) has not been updated in over {file_config.heartbeat_seconds} seconds."
-                    logger.info(f"File {file_config.name} is stalled. Sending notification.")
-                    send_discord_notification(url, message)
-                    
-                    # Optional: Avoid spamming? Currently it will spam every cycle.
-                    # Ideally we should state manage this too, but per requirements we just notify.
+                if file_id not in notified_files:
+                    url = file_config.webhook_url or app_config.default_webhook_url
+                    if url:
+                        message = (
+                            f"⚠️ **Heartbeat Missed**\n"
+                            f"**File**: `{file_config.name}`\n"
+                            f"**Path**: `{file_config.path}`\n"
+                            f"**Status**: Stalled (No update in {file_config.heartbeat_seconds}s)"
+                        )
+                        logger.info(f"File {file_config.name} is stalled. Sending notification.")
+                        send_discord_notification(url, message)
+                        notified_files.add(file_id)
+                    else:
+                        logger.warning(f"File {file_config.name} is stalled but no webhook URL is configured.")
                 else:
-                    logger.warning(f"File {file_config.name} is stalled but no webhook URL is configured.")
+                    logger.debug(f"File {file_config.name} is stalled, but notification already sent.")
             else:
                 logger.debug(f"File {file_config.name} is healthy.")
+                if file_id in notified_files:
+                    logger.info(f"File {file_config.name} has recovered. Resetting notification state.")
+                    notified_files.remove(file_id)
+                    
         except Exception as e:
             logger.error(f"Error checking file {file_config.name}: {e}")
 
